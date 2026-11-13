@@ -1,0 +1,31 @@
+# Paired sessions and credentials
+session*.json
+*.session
+cookies*.json
+*.env
+.env*
+token
+*.token
+
+# Local configuration (only config.example.yaml is tracked)
+config.yaml
+config.yml
+config.local.*
+
+# Pairing QR codes
+pairing-qr*.png
+*-qr.png
+
+# Logs and audit logs
+*.log
+audit*.jsonl
+*.jsonl
+
+# Build output
+/sms-mcp
+/bin/
+/dist/
+*.exe
+*.test
+*.out
+coverage.*

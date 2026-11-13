@@ -1,0 +1,56 @@
+# sms-mcp example configuration. Copy to config.yaml (which is git-ignored)
+# and adjust. Every setting can be overridden with an SMS_MCP_* environment
+# variable; see README.md. Values below are the defaults unless noted.
+
+# Paired session (contains credentials). Written with mode 0600.
+session_file: /var/lib/sms-mcp/session.json
+
+# trace and debug may log message metadata and libgm internals. Use info in production.
+log_level: info
+
+http:
+  # Keep on loopback unless you set a token (non-loopback without a token is refused).
+  listen: 127.0.0.1:8787
+  path: /mcp
+  # The MCP SDK rejects requests whose Host header is not localhost when
+  # listening on loopback (DNS-rebinding protection). Only disable this behind
+  # a reverse proxy that rewrites Host.
+  disable_localhost_protection: false
+
+auth:
+  # File holding the bearer token (one line, at least 24 characters, not
+  # world-readable). Alternatively set SMS_MCP_TOKEN. Never put the token here.
+  token_file: /etc/sms-mcp/token
+  # Optional IP/CIDR allowlist on the TCP peer address (X-Forwarded-For is ignored).
+  # Documentation ranges shown as placeholders.
+  allowlist:
+    - 127.0.0.1
+    - 198.51.100.0/24
+  # Required to listen on a non-loopback address without a token. Don't.
+  allow_unauthenticated: false
+
+send:
+  # false = read-only: send_sms and reply are not registered at all.
+  enabled: true
+  # Only allow send_sms to numbers that already have a 1:1 conversation.
+  only_existing_conversations: true
+  # Maximum message length in characters.
+  max_length: 1600
+  # How many recent conversations are scanned to find an existing one.
+  existing_scan_limit: 200
+
+audit:
+  # Append-only JSONL log of every send attempt (mode 0600).
+  file: /var/lib/sms-mcp/audit.jsonl
+  # Also record the message text. Off by default.
+  log_text: false
+
+pairing:
+  # PNG copy of the pairing QR code (mode 0600, deleted after pairing). Empty disables it.
+  qr_png: pairing-qr.png
+  timeout: 3m
+
+limits:
+  max_conversations: 100
+  max_messages: 100
+  max_contacts: 100

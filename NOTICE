@@ -1,0 +1,21 @@
+sms-mcp
+Copyright (C) the sms-mcp contributors
+
+This program is licensed under the GNU Affero General Public License v3.0
+(see LICENSE).
+
+It includes and depends on libgm, part of mautrix-gmessages
+(https://github.com/mautrix/gmessages), Copyright (C) Tulir Asokan,
+licensed under the GNU Affero General Public License v3.0. The Google
+Messages pairing, encryption and long-polling protocol implementation is
+entirely Tulir Asokan's work; sms-mcp only wraps it.
+
+Other dependencies (see go.mod) are under their own licenses, including:
+- github.com/modelcontextprotocol/go-sdk (Apache-2.0 / MIT)
+- github.com/rs/zerolog (MIT)
+- github.com/skip2/go-qrcode (MIT)
+- gopkg.in/yaml.v3 (MIT / Apache-2.0)
+- go.mau.fi/util (MPL-2.0)
+
+sms-mcp is not affiliated with, endorsed by or supported by Google.
+"Google Messages" is a trademark of Google LLC.
