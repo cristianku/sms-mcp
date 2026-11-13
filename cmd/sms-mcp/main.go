@@ -90,8 +90,8 @@ func cmdCheckConfig(args []string) error {
 	if err != nil {
 		return err
 	}
-	fmt.Printf("config OK: listen=%s path=%s session_file=%s send_enabled=%v only_existing=%v token_set=%v allowlist=%v\n",
-		cfg.HTTP.Listen, cfg.HTTP.Path, cfg.SessionFile, cfg.Send.Enabled, cfg.Send.OnlyExistingConversations,
+	fmt.Printf("config OK: listen=%s path=%s stateless=%v session_file=%s send_enabled=%v only_existing=%v token_set=%v allowlist=%v\n",
+		cfg.HTTP.Listen, cfg.HTTP.Path, cfg.HTTP.Stateless, cfg.SessionFile, cfg.Send.Enabled, cfg.Send.OnlyExistingConversations,
 		cfg.Auth.Token != "", cfg.Auth.Allowlist)
 	return nil
 }
@@ -221,6 +221,7 @@ func cmdServe(args []string) error {
 		Token:                      cfg.Auth.Token,
 		Allowlist:                  allow,
 		DisableLocalhostProtection: cfg.HTTP.DisableLocalhostProtection,
+		Stateless:                  cfg.HTTP.Stateless,
 		Health:                     func() string { return string(svc.State()) },
 	})
 

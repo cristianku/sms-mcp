@@ -16,6 +16,9 @@ type HTTPOptions struct {
 	Token                      string
 	Allowlist                  []netip.Prefix
 	DisableLocalhostProtection bool
+	// Stateless enables the SDK's stateless mode: no Mcp-Session-Id, POST
+	// only, and support for the 2026-07-28 protocol (server/discover).
+	Stateless bool
 	// Health returns the connection state shown on /healthz.
 	Health func() string
 }
@@ -26,9 +29,18 @@ type HTTPOptions struct {
 func NewHTTPHandler(srv *mcp.Server, opts HTTPOptions) http.Handler {
 	mcpHandler := mcp.NewStreamableHTTPHandler(func(*http.Request) *mcp.Server { return srv }, &mcp.StreamableHTTPOptions{
 		DisableLocalhostProtection: opts.DisableLocalhostProtection,
+		Stateless:                  opts.Stateless,
 	})
 	mux := http.NewServeMux()
 	mux.Handle(opts.Path, httpauth.Bearer(opts.Token, mcpHandler))
+	// No OAuth: answer metadata discovery with a JSON 404 so clients that
+	// probe /.well-known/oauth-protected-resource* get parseable JSON instead
+	// of the mux's plain-text "404 page not found".
+	mux.HandleFunc("/.well-known/", func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusNotFound)
+		_, _ = w.Write([]byte(`{"error":"not_found"}` + "\n"))
+	})
 	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, _ *http.Request) {
 		state := "unknown"
 		if opts.Health != nil {

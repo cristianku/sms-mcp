@@ -144,6 +144,7 @@ optional; unknown keys are rejected. Environment variables override the file:
 | `SMS_MCP_LISTEN` | `http.listen` | `127.0.0.1:8787` |
 | `SMS_MCP_PATH` | `http.path` | `/mcp` |
 | `SMS_MCP_DISABLE_LOCALHOST_PROTECTION` | `http.disable_localhost_protection` | `false` |
+| `SMS_MCP_STATELESS` | `http.stateless` | `true` |
 | `SMS_MCP_TOKEN` | the bearer token itself | none |
 | `SMS_MCP_TOKEN_FILE` | `auth.token_file` | none |
 | `SMS_MCP_ALLOWLIST` | `auth.allowlist` (comma-separated) | empty (any peer) |
@@ -162,6 +163,13 @@ can only be set in the file.
 ## MCP client setup
 
 The endpoint is `http://127.0.0.1:8787/mcp` (streamable HTTP).
+
+By default the server is stateless (`http.stateless: true`): it issues no
+`Mcp-Session-Id`, every POST is handled on its own, and `GET`/`DELETE` on the
+endpoint return 405. This is what clients on MCP protocol 2026-07-28 need
+(they open with `server/discover`, as ChatGPT does); clients that start with
+`initialize` on older protocol versions work the same way. Set it to `false`
+only if a client relies on sessions or on the standalone GET stream.
 
 **Claude Code**
 

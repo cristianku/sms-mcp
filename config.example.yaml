@@ -16,6 +16,10 @@ http:
   # listening on loopback (DNS-rebinding protection). Only disable this behind
   # a reverse proxy that rewrites Host.
   disable_localhost_protection: false
+  # Stateless MCP: no Mcp-Session-Id, each POST is self-contained, GET/DELETE
+  # return 405. Required by clients on protocol 2026-07-28 (server/discover),
+  # such as ChatGPT; older clients (initialize) keep working.
+  stateless: true
 
 auth:
   # File holding the bearer token (one line, at least 24 characters, not

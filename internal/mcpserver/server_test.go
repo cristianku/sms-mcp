@@ -4,9 +4,11 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"net/netip"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -394,12 +396,21 @@ func TestCallToolOverMCP(t *testing.T) {
 }
 
 func TestHTTPHandlerAuth(t *testing.T) {
+	for _, stateless := range []bool{true, false} {
+		t.Run(map[bool]string{true: "stateless", false: "stateful"}[stateless], func(t *testing.T) {
+			testHTTPHandlerAuth(t, stateless)
+		})
+	}
+}
+
+func testHTTPHandlerAuth(t *testing.T, stateless bool) {
 	const token = "test-token-0123456789abcdef"
 	srv := NewServer(NewTools(newFake(), &memAudit{}, defaultOpts()))
 	h := NewHTTPHandler(srv, HTTPOptions{
 		Path:      "/mcp",
 		Token:     token,
 		Allowlist: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+		Stateless: stateless,
 		Health:    func() string { return "connected" },
 	})
 	ts := httptest.NewServer(h)
@@ -454,6 +465,142 @@ func TestHTTPHandlerAuth(t *testing.T) {
 	resp.Body.Close()
 	if resp.StatusCode != http.StatusForbidden {
 		t.Fatalf("allowlist: %d", resp.StatusCode)
+	}
+}
+
+// rawPost sends one JSON-RPC message the way a client on the wire would and
+// returns the status, the Mcp-Session-Id header and the JSON payload (taken
+// from the first SSE data line when the response is an event stream).
+func rawPost(t *testing.T, url, token string, headers map[string]string, body string) (int, string, string) {
+	t.Helper()
+	req, _ := http.NewRequest("POST", url, strings.NewReader(body))
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Content-Type", "application/json")
+	req.Header.Set("Accept", "application/json, text/event-stream")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(resp.Body)
+	payload := string(data)
+	if strings.HasPrefix(resp.Header.Get("Content-Type"), "text/event-stream") {
+		payload = ""
+		for _, line := range strings.Split(string(data), "\n") {
+			if rest, ok := strings.CutPrefix(line, "data: "); ok {
+				payload = rest
+				break
+			}
+		}
+	}
+	return resp.StatusCode, resp.Header.Get("Mcp-Session-Id"), payload
+}
+
+// TestHTTPStatelessWire checks the stateless endpoint as ChatGPT (protocol
+// 2026-07-28, server/discover) and older clients (initialize 2025-06-18) see it.
+func TestHTTPStatelessWire(t *testing.T) {
+	const token = "test-token-0123456789abcdef"
+	fake := newFake()
+	aud := &memAudit{}
+	h := NewHTTPHandler(NewServer(NewTools(fake, aud, defaultOpts())), HTTPOptions{
+		Path: "/mcp", Token: token, Stateless: true,
+		Allowlist: []netip.Prefix{netip.MustParsePrefix("127.0.0.0/8")},
+	})
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+	url := ts.URL + "/mcp"
+
+	const meta = `"_meta":{"io.modelcontextprotocol/protocolVersion":"2026-07-28","io.modelcontextprotocol/clientCapabilities":{},"io.modelcontextprotocol/clientInfo":{"name":"chatgpt","version":"1"}}`
+	newProto := func(method, name string) map[string]string {
+		h := map[string]string{"MCP-Protocol-Version": "2026-07-28", "Mcp-Method": method}
+		if name != "" {
+			h["Mcp-Name"] = name
+		}
+		return h
+	}
+
+	// server/discover must advertise 2026-07-28.
+	status, sid, body := rawPost(t, url, token, newProto("server/discover", ""),
+		`{"jsonrpc":"2.0","id":1,"method":"server/discover","params":{`+meta+`}}`)
+	if status != http.StatusOK || sid != "" {
+		t.Fatalf("discover: %d sid=%q %s", status, sid, body)
+	}
+	var disc struct {
+		Result struct {
+			SupportedVersions []string `json:"supportedVersions"`
+		} `json:"result"`
+	}
+	if err := json.Unmarshal([]byte(body), &disc); err != nil || !slices.Contains(disc.Result.SupportedVersions, "2026-07-28") {
+		t.Fatalf("discover result: %v %s", err, body)
+	}
+
+	// tools/list and tools/call on the new protocol, without a session.
+	status, _, body = rawPost(t, url, token, newProto("tools/list", ""),
+		`{"jsonrpc":"2.0","id":2,"method":"tools/list","params":{`+meta+`}}`)
+	if status != http.StatusOK || !strings.Contains(body, `"send_sms"`) {
+		t.Fatalf("tools/list: %d %s", status, body)
+	}
+	status, _, body = rawPost(t, url, token, newProto("tools/call", "reply"),
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"reply","arguments":{"conversation_id":"c1","text":"hi"},`+meta+`}}`)
+	if status != http.StatusOK || strings.Contains(body, `"isError":true`) || !strings.Contains(body, `"result"`) {
+		t.Fatalf("reply: %d %s", status, body)
+	}
+
+	// Legacy flow: initialize 2025-06-18, then calls with no session ID.
+	status, sid, body = rawPost(t, url, token, nil,
+		`{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"legacy","version":"1"}}}`)
+	if status != http.StatusOK || sid != "" || !strings.Contains(body, `"protocolVersion":"2025-06-18"`) {
+		t.Fatalf("initialize: %d sid=%q %s", status, sid, body)
+	}
+	legacy := map[string]string{"MCP-Protocol-Version": "2025-06-18"}
+	if status, _, _ = rawPost(t, url, token, legacy, `{"jsonrpc":"2.0","method":"notifications/initialized"}`); status != http.StatusAccepted {
+		t.Fatalf("initialized: %d", status)
+	}
+	status, _, body = rawPost(t, url, token, legacy,
+		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"send_sms","arguments":{"to":"+15550100002","text":"legacy"}}}`)
+	if status != http.StatusOK || strings.Contains(body, `"isError":true`) {
+		t.Fatalf("send_sms: %d %s", status, body)
+	}
+
+	// Both sends reached the phone and the audit log.
+	if len(fake.sent) != 2 || fake.sent[0] != (sentMsg{"c1", "hi"}) || fake.sent[1] != (sentMsg{"c2", "legacy"}) {
+		t.Fatalf("sent: %+v", fake.sent)
+	}
+	if got := aud.results(); !slices.Equal(got, []string{"pending", "sent", "pending", "sent"}) ||
+		aud.recs[1].Tool != "reply" || aud.recs[3].Tool != "send_sms" {
+		t.Fatalf("audit: %+v", aud.recs)
+	}
+
+	// Still no token, no access.
+	if status, _, _ = rawPost(t, url, "wrong-token-0123456789abcdef", nil, `{}`); status != http.StatusUnauthorized {
+		t.Fatalf("bad token: %d", status)
+	}
+
+	// GET (standalone stream) is not offered in stateless mode.
+	req, _ := http.NewRequest("GET", url, nil)
+	req.Header.Set("Authorization", "Bearer "+token)
+	req.Header.Set("Accept", "text/event-stream")
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusMethodNotAllowed {
+		t.Fatalf("GET: %d", resp.StatusCode)
+	}
+
+	// OAuth metadata probes get a JSON 404.
+	resp, err = http.Get(ts.URL + "/.well-known/oauth-protected-resource/mcp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	data, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusNotFound || resp.Header.Get("Content-Type") != "application/json" || !json.Valid(data) {
+		t.Fatalf("well-known: %d %q %s", resp.StatusCode, resp.Header.Get("Content-Type"), data)
 	}
 }
 

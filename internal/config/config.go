@@ -45,6 +45,10 @@ type HTTPConfig struct {
 	// non-localhost Host header. Needed only behind a local reverse proxy that
 	// does not preserve the Host header.
 	DisableLocalhostProtection bool `yaml:"disable_localhost_protection"`
+	// Stateless serves every POST with a fresh temporary MCP session and no
+	// Mcp-Session-Id. Clients on protocol 2026-07-28 (server/discover, used
+	// by ChatGPT) are only accepted in this mode. GET and DELETE return 405.
+	Stateless bool `yaml:"stateless"`
 }
 
 // AuthConfig configures request authentication.
@@ -106,8 +110,9 @@ func Default() Config {
 		SessionFile: "session.json",
 		LogLevel:    "info",
 		HTTP: HTTPConfig{
-			Listen: "127.0.0.1:8787",
-			Path:   "/mcp",
+			Listen:    "127.0.0.1:8787",
+			Path:      "/mcp",
+			Stateless: true,
 		},
 		Send: SendConfig{
 			Enabled:                   true,
@@ -209,6 +214,7 @@ func applyEnv(cfg *Config, getenv func(string) string) error {
 		"AUDIT_LOG_TEXT":               &cfg.Audit.LogText,
 		"DISABLE_LOCALHOST_PROTECTION": &cfg.HTTP.DisableLocalhostProtection,
 		"ALLOW_UNAUTHENTICATED":        &cfg.Auth.AllowUnauthenticated,
+		"STATELESS":                    &cfg.HTTP.Stateless,
 	} {
 		if err := boolean(name, dst); err != nil {
 			return err

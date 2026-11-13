@@ -27,8 +27,26 @@ func TestDefaults(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cfg.HTTP.Listen != "127.0.0.1:8787" || cfg.HTTP.Path != "/mcp" || !cfg.Send.OnlyExistingConversations || cfg.Audit.LogText {
+	if cfg.HTTP.Listen != "127.0.0.1:8787" || cfg.HTTP.Path != "/mcp" || !cfg.HTTP.Stateless || !cfg.Send.OnlyExistingConversations || cfg.Audit.LogText {
 		t.Fatalf("unexpected defaults: %+v", cfg)
+	}
+}
+
+func TestStatelessOverride(t *testing.T) {
+	p := writeFile(t, "config.yaml", "http:\n  stateless: false\n", 0o600)
+	cfg, err := Load(p, env(nil))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.HTTP.Stateless {
+		t.Fatal("stateless: false in the file was ignored")
+	}
+	cfg, err = Load(p, env(map[string]string{"SMS_MCP_STATELESS": "true"}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.HTTP.Stateless {
+		t.Fatal("SMS_MCP_STATELESS did not override the file")
 	}
 }
 
